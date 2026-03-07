@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- No sandbox: allows unrestricted localhost/LAN access for ZeroClaw daemon -->
+    <key>com.apple.security.app-sandbox</key>
+    <false/>
+    <!-- Network client access for HTTP/WS to ZeroClaw daemon -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <!-- Hardened runtime: allow JIT (not needed here but good practice) -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <false/>
+</dict>
+</plist>

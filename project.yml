@@ -1,0 +1,33 @@
+name: ZeroClawDesktop
+
+options:
+  bundleIdPrefix: com.themagictower
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+
+targets:
+  ZeroClawDesktop:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: ZeroClawDesktop
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.themagictower.ZeroClawDesktop
+        INFOPLIST_FILE: ZeroClawDesktop/Resources/Info.plist
+        # No entitlements needed — sandbox is off, no special capabilities
+        SWIFT_VERSION: "5.9"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        # Ad-hoc signing: no Team, no Developer account required
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: ""
+        CODE_SIGNING_REQUIRED: "YES"
+        ENABLE_HARDENED_RUNTIME: "NO"
