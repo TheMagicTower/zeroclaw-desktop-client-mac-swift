@@ -66,6 +66,14 @@ final class WebSocketService: NSObject, ObservableObject {
         try await task.send(.string(String(data: payload, encoding: .utf8)!))
     }
 
+    /// Send a cancel request to stop the current generation.
+    func sendCancel() async {
+        guard let task, isConnected else { return }
+        let payload = try? JSONSerialization.data(withJSONObject: ["type": "cancel"])
+        guard let payload else { return }
+        try? await task.send(.string(String(data: payload, encoding: .utf8)!))
+    }
+
     // MARK: - Private
 
     private func startReceiving() {

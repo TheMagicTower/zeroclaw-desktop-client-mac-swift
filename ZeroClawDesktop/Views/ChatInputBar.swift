@@ -51,18 +51,44 @@ struct ChatInputBar: View {
                     handleDrop(providers)
                 }
 
-                // Send button
-                Button {
-                    Task { await vm.send() }
-                } label: {
-                    Image(systemName: vm.isSending ? "hourglass.circle.fill" : "arrow.up.circle.fill")
-                        .font(compact ? .title2 : .system(size: 28))
-                        .foregroundStyle(canSend ? Color.accentColor : Color.secondary)
+                // Stop button (while sending) or Send button + queue badge
+                if vm.isSending {
+                    Button {
+                        Task { await vm.cancelStream() }
+                    } label: {
+                        Image(systemName: "stop.circle.fill")
+                            .font(compact ? .title2 : .system(size: 28))
+                            .foregroundStyle(.red)
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.escape, modifiers: [])
+                    .help("Cancel (Esc)")
+                } else {
+                    ZStack(alignment: .topTrailing) {
+                        Button {
+                            Task { await vm.send() }
+                        } label: {
+                            Image(systemName: "arrow.up.circle.fill")
+                                .font(compact ? .title2 : .system(size: 28))
+                                .foregroundStyle(canSend ? Color.accentColor : Color.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!canSend)
+                        .keyboardShortcut(.return, modifiers: .command)
+                        .help("Send (Cmd+Return)")
+
+                        if vm.queuedMessageCount > 0 {
+                            Text("\(vm.queuedMessageCount)")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 2)
+                                .background(Color.orange)
+                                .clipShape(Capsule())
+                                .offset(x: 6, y: -4)
+                        }
+                    }
                 }
-                .buttonStyle(.plain)
-                .disabled(!canSend)
-                .keyboardShortcut(.return, modifiers: .command)
-                .help("Send (Cmd+Return)")
 
                 // Submit mode toggle
                 let currentMode = settings.activeProfile?.submitMode ?? .cmdEnter
@@ -133,7 +159,7 @@ struct ChatInputBar: View {
     // MARK: - Helpers
 
     private var canSend: Bool {
-        !vm.isSending && settings.isPaired &&
+        settings.isPaired &&
         (!vm.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
          !vm.pendingAttachments.isEmpty)
     }

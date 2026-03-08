@@ -47,7 +47,11 @@ struct ChatView: View {
                 LazyVStack(alignment: .leading, spacing: 6) {
                     if vm.messages.isEmpty { emptyState }
                     ForEach(vm.messages) { msg in
-                        CompactMessageBubble(message: msg).id(msg.id)
+                        CompactMessageBubble(
+                            message: msg,
+                            isQueued: vm.queuedMessageIDs.contains(msg.id),
+                            onDequeue: { vm.removeQueuedMessage(msg.id) }
+                        ).id(msg.id)
                     }
                     Color.clear.frame(height: 1).id("bottom")
                 }
@@ -78,6 +82,8 @@ struct ChatView: View {
 
 struct CompactMessageBubble: View {
     let message: ChatMessage
+    var isQueued: Bool = false
+    var onDequeue: (() -> Void)? = nil
     @State private var expanded = false
 
     private var isTool: Bool {
@@ -96,16 +102,14 @@ struct CompactMessageBubble: View {
                     HStack(spacing: 4) {
                         Text(roleLabel).font(.caption.bold()).foregroundStyle(.secondary)
                         Spacer(minLength: 0)
-                        if !message.content.isEmpty {
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
-                            } label: {
-                                Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .buttonStyle(.plain)
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
+                        } label: {
+                            Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
                         }
+                        .buttonStyle(.plain)
                     }
                     if expanded {
                         CodeBlockView(code: message.content, language: "")
@@ -117,8 +121,28 @@ struct CompactMessageBubble: View {
                     MarkdownMessageView(content: message.content)
                         .opacity(message.isStreaming ? 0.75 : 1.0)
                 }
-                Text(message.timestamp, style: .time)
-                    .font(.caption2).foregroundStyle(.tertiary)
+                HStack(spacing: 4) {
+                    Text(message.timestamp, style: .time)
+                        .font(.caption2).foregroundStyle(.tertiary)
+                    if isQueued {
+                        Text("대기 중")
+                            .font(.caption2)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 4).padding(.vertical, 1)
+                            .background(Color.orange)
+                            .clipShape(Capsule())
+                    }
+                    Spacer(minLength: 0)
+                    if isQueued, let onDequeue {
+                        Button(action: onDequeue) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("큐에서 제거")
+                    }
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }

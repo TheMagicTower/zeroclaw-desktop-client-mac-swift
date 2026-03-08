@@ -27,11 +27,23 @@ final class ChatViewModel: ObservableObject {
     @Published private(set) var isSending = false
     @Published private(set) var connectionError: String?
     @Published var pendingAttachments: [PendingAttachment] = []
+    @Published private(set) var queuedMessageCount = 0
 
     // Input history (terminal-style Shift+Up/Down navigation)
     private var sentHistory: [String] = []
     private var historyIndex: Int? = nil
     private var historyDraft: String = ""
+
+    // Message queue
+    private struct QueuedMessage {
+        let messageID: UUID          // links to the ChatMessage already added to messages[]
+        let text: String
+        let attachments: [PendingAttachment]
+    }
+    private var messageQueue: [QueuedMessage] = []
+    @Published private(set) var queuedMessageIDs: Set<UUID> = []  // user msgs still waiting
+    private var isProcessingQueue = false
+    private var sendContinuation: CheckedContinuation<Void, Never>?
 
     private let ws = WebSocketService()
     private let settings: SettingsViewModel
@@ -100,19 +112,52 @@ final class ChatViewModel: ObservableObject {
 
     func send() async {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let hasAttachments = !pendingAttachments.isEmpty
-        guard (!text.isEmpty || hasAttachments), !isSending else { return }
+        let attachments = pendingAttachments
+        guard !text.isEmpty || !attachments.isEmpty else { return }
 
         inputText = ""
         historyIndex = nil
         historyDraft = ""
         if !text.isEmpty { sentHistory.append(text) }
-        let attachments = pendingAttachments
         pendingAttachments = []
 
-        // Build display text (plain, no markers)
-        messages.append(.user(text.isEmpty ? "📎 Image" : text))
+        // Show user message immediately regardless of queue state
+        let userMsg = ChatMessage.user(text.isEmpty ? "📎 Image" : text)
+        messages.append(userMsg)
 
+        let queued = QueuedMessage(messageID: userMsg.id, text: text, attachments: attachments)
+        messageQueue.append(queued)
+        queuedMessageIDs.insert(userMsg.id)
+        queuedMessageCount = messageQueue.count
+
+        if !isProcessingQueue {
+            Task { await processQueue() }
+        }
+    }
+
+    private func processQueue() async {
+        guard !isProcessingQueue else { return }
+        isProcessingQueue = true
+        defer { isProcessingQueue = false }
+
+        while !messageQueue.isEmpty {
+            let msg = messageQueue.removeFirst()
+            queuedMessageCount = messageQueue.count
+            await doSend(msg)
+        }
+    }
+
+    /// Remove a queued (not-yet-sent) message from both the queue and chat history.
+    func removeQueuedMessage(_ messageID: UUID) {
+        messageQueue.removeAll { $0.messageID == messageID }
+        queuedMessageIDs.remove(messageID)
+        queuedMessageCount = messageQueue.count
+        messages.removeAll { $0.id == messageID }
+    }
+
+    private func doSend(_ msg: QueuedMessage) async {
+        // Mark as no longer "waiting in queue" — now actively being sent
+        queuedMessageIDs.remove(msg.messageID)
         // Ensure connected
         if !ws.isConnected {
             connect()
@@ -125,12 +170,10 @@ final class ChatViewModel: ObservableObject {
         }
 
         isSending = true
-        // Placeholder
         messages.append(ChatMessage(role: .assistant, content: "", isStreaming: true))
 
-        // Build actual payload: attachment markers + context + text
-        let markers = attachments.map(\.marker).joined(separator: " ")
-        let userContent = [markers, text].filter { !$0.isEmpty }.joined(separator: "\n")
+        let markers = msg.attachments.map(\.marker).joined(separator: " ")
+        let userContent = [markers, msg.text].filter { !$0.isEmpty }.joined(separator: "\n")
         let payload = buildMessageWithContext(userContent)
 
         do {
@@ -141,11 +184,54 @@ final class ChatViewModel: ObservableObject {
             }
             messages.append(ChatMessage(role: .error, content: error.localizedDescription))
             isSending = false
+            return
+        }
+
+        // Wait until .done or .error is received via handle()
+        await withCheckedContinuation { cont in
+            sendContinuation = cont
+        }
+    }
+
+    func cancelStream() async {
+        guard isSending else { return }
+
+        // 1. Clear pending queue
+        messageQueue.removeAll()
+        queuedMessageIDs.removeAll()
+        queuedMessageCount = 0
+
+        // 2. Notify server
+        await ws.sendCancel()
+
+        // 3. Finalise the streaming bubble (search backwards — toolCall/toolResult may be last)
+        finaliseStreamingBubble()
+
+        // 4. Resume continuation so processQueue exits cleanly
+        isSending = false
+        let cont = sendContinuation
+        sendContinuation = nil
+        cont?.resume()
+    }
+
+    /// Find the last streaming assistant message and mark it as complete (or remove if empty).
+    private func finaliseStreamingBubble() {
+        guard let idx = messages.indices.reversed().first(where: {
+            if case .assistant = messages[$0].role { return messages[$0].isStreaming }
+            return false
+        }) else { return }
+
+        if messages[idx].content.isEmpty {
+            messages.remove(at: idx)
+        } else {
+            messages[idx].isStreaming = false
         }
     }
 
     func clearHistory() {
         messages.removeAll()
+        messageQueue.removeAll()
+        queuedMessageCount = 0
         if let url = historyURL() { try? FileManager.default.removeItem(at: url) }
     }
 
@@ -217,6 +303,9 @@ final class ChatViewModel: ObservableObject {
     // MARK: - Message handling
 
     private func handle(_ msg: WebSocketMessage) {
+        // If not currently sending (e.g. cancelled), ignore stale server messages
+        guard isSending else { return }
+
         switch msg {
         case .chunk(let text):
             if let idx = messages.indices.last,
@@ -228,12 +317,15 @@ final class ChatViewModel: ObservableObject {
             }
 
         case .done(let full):
-            // Parse out <tool_call> XML blocks from the raw LLM response
             let (cleanText, toolCalls) = parseToolCallXML(from: full)
 
-            if let idx = messages.indices.last, case .assistant = messages[idx].role {
+            // Find the streaming assistant bubble (may not be messages.last if tools ran)
+            if let idx = messages.indices.reversed().first(where: {
+                if case .assistant = messages[$0].role { return messages[$0].isStreaming }
+                return false
+            }) {
                 if cleanText.isEmpty && !toolCalls.isEmpty {
-                    messages.remove(at: idx)  // remove empty placeholder
+                    messages.remove(at: idx)
                 } else {
                     messages[idx].content = cleanText
                     messages[idx].isStreaming = false
@@ -242,12 +334,12 @@ final class ChatViewModel: ObservableObject {
                 messages.append(.assistant(cleanText))
             }
 
-            // Show parsed tool calls as styled bubbles
             for call in toolCalls {
                 messages.append(ChatMessage(role: .toolCall(name: call.name),
                                             content: call.args))
             }
             isSending = false
+            sendContinuation?.resume(); sendContinuation = nil
 
         case .toolCall(let name):
             messages.append(ChatMessage(role: .toolCall(name: name), content: "Calling \(name)…"))
@@ -262,6 +354,7 @@ final class ChatViewModel: ObservableObject {
             }
             messages.append(ChatMessage(role: .error, content: errMsg))
             isSending = false
+            sendContinuation?.resume(); sendContinuation = nil
         }
     }
 

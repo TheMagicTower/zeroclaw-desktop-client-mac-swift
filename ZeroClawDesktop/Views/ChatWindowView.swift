@@ -124,7 +124,11 @@ struct ChatWindowView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     if chat.messages.isEmpty { emptyState }
                     ForEach(chat.messages) { msg in
-                        WindowMessageBubble(message: msg).id(msg.id)
+                        WindowMessageBubble(
+                            message: msg,
+                            isQueued: chat.queuedMessageIDs.contains(msg.id),
+                            onDequeue: { chat.removeQueuedMessage(msg.id) }
+                        ).id(msg.id)
                     }
                     Color.clear.frame(height: 1).id("bottom")
                 }
@@ -155,6 +159,8 @@ struct ChatWindowView: View {
 
 struct WindowMessageBubble: View {
     let message: ChatMessage
+    var isQueued: Bool = false
+    var onDequeue: (() -> Void)? = nil
     @State private var expanded = false
 
     private var isTool: Bool {
@@ -172,7 +178,24 @@ struct WindowMessageBubble: View {
                 HStack(spacing: 6) {
                     Text(roleLabel).font(.caption.bold()).foregroundStyle(.secondary)
                     Text(message.timestamp, style: .time).font(.caption2).foregroundStyle(.tertiary)
+                    if isQueued {
+                        Text("대기 중")
+                            .font(.caption2)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 5).padding(.vertical, 2)
+                            .background(Color.orange)
+                            .clipShape(Capsule())
+                    }
                     Spacer(minLength: 0)
+                    if isQueued, let onDequeue {
+                        Button(action: onDequeue) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("큐에서 제거")
+                    }
                     if isTool {
                         Button {
                             withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
