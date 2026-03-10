@@ -308,9 +308,10 @@ final class ChatViewModel: ObservableObject {
 
         switch msg {
         case .chunk(let text):
-            if let idx = messages.indices.last,
-               case .assistant = messages[idx].role,
-               messages[idx].isStreaming {
+            if let idx = messages.indices.reversed().first(where: {
+                if case .assistant = messages[$0].role { return messages[$0].isStreaming }
+                return false
+            }) {
                 messages[idx].content += text
             } else {
                 messages.append(ChatMessage(role: .assistant, content: text, isStreaming: true))
