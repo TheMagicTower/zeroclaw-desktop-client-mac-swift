@@ -59,7 +59,10 @@ final class ChatViewModel: ObservableObject {
 
         ws.$isConnected
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .sink { [weak self] isConnected in
+                self?.objectWillChange.send()
+                if isConnected { Task { await self?.syncHistoryFromServer() } }
+            }
             .store(in: &cancellables)
 
         ws.$connectionError
@@ -274,6 +277,23 @@ final class ChatViewModel: ObservableObject {
               let loaded = try? JSONDecoder().decode([ChatMessage].self, from: data)
         else { return }
         messages = loaded
+    }
+
+    private func syncHistoryFromServer() async {
+        guard let baseURL = settings.baseURL, let token = settings.token else { return }
+        let client = ZeroClawClient(baseURL: baseURL, token: token)
+        do {
+            let serverMsgs = try await client.fetchHistory()
+            let converted = serverMsgs.compactMap { $0.toChatMessage() }
+            guard !converted.isEmpty else { return }
+            // Server is source of truth: replace local if server has more messages
+            if converted.count >= messages.count {
+                messages = converted
+                saveHistory()
+            }
+        } catch {
+            // Silent fail — keep local history
+        }
     }
 
     // MARK: - Input history navigation

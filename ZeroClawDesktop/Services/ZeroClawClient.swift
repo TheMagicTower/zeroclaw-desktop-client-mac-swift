@@ -97,6 +97,18 @@ final class ZeroClawClient {
         try await getJSON("api/config")
     }
 
+    func fetchHistory() async throws -> [ServerHistoryMessage] {
+        guard let url = URL(string: "api/history", relativeTo: baseURL) else {
+            throw ZeroClawError.invalidURL
+        }
+        var req = URLRequest(url: url)
+        if let token { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        let (data, response) = try await URLSession.shared.data(for: req)
+        try validateResponse(response, data: data)
+        let decoded = try JSONDecoder().decode(ServerHistoryResponse.self, from: data)
+        return decoded.messages
+    }
+
     func tools() async throws -> [[String: Any]] {
         let json = try await getJSON("api/tools")
         return json["tools"] as? [[String: Any]] ?? []
