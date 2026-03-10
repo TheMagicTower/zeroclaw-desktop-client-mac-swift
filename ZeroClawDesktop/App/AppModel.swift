@@ -7,16 +7,20 @@ final class AppModel: ObservableObject {
     let settings: SettingsViewModel
     let chat: ChatViewModel
     let status: StatusViewModel
+    let notifications: NotificationService
 
     private var cancellables = Set<AnyCancellable>()
 
     init() {
         let s = SettingsViewModel()
-        let c = ChatViewModel(settings: s)
+        let ns = NotificationService()
+        let c = ChatViewModel(settings: s, notificationService: ns)
         let st = StatusViewModel(settings: s)
         settings = s
         chat = c
         status = st
+        notifications = ns
+        ns.requestAuthorization()
         st.start()
         if s.isPaired { c.connect() }
 

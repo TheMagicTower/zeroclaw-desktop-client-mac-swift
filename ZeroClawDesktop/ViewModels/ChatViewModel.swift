@@ -47,13 +47,15 @@ final class ChatViewModel: ObservableObject {
 
     private let ws = WebSocketService()
     private let settings: SettingsViewModel
+    private let notificationService: NotificationService
     private var cancellables = Set<AnyCancellable>()
 
     var isConnected: Bool { ws.isConnected }
     var isPaired: Bool { settings.isPaired }
 
-    init(settings: SettingsViewModel) {
+    init(settings: SettingsViewModel, notificationService: NotificationService) {
         self.settings = settings
+        self.notificationService = notificationService
 
         ws.$isConnected
             .receive(on: DispatchQueue.main)
@@ -339,6 +341,9 @@ final class ChatViewModel: ObservableObject {
                 messages.append(ChatMessage(role: .toolCall(name: call.name),
                                             content: call.args))
             }
+            let serverName = settings.activeProfile?.name ?? "ZeroClaw"
+            notificationService.notifyResponseComplete(serverName: serverName, content: cleanText)
+
             isSending = false
             sendContinuation?.resume(); sendContinuation = nil
 
